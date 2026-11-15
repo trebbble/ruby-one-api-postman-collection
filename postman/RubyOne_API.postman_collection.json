@@ -1,0 +1,628 @@
+{
+  "info": {
+    "_postman_id": "ruby-developer-api-collection",
+    "name": "Ruby Developer API",
+    "description": "Official Postman Collection for the Ruby Public Developer REST API v1 — Enterprise URL Shortener, Dynamic QR Codes & Link Management.\n\n### Authentication\nThis collection automatically handles both:\n1. **Basic Bearer Token** (`Authorization: Bearer <key_id>:<key_secret>`)\n2. **Enterprise HMAC-SHA256 Request Signing** (`X-Rby-Key-Id`, `X-Rby-Timestamp`, `X-Rby-Signature`)\n\nSwitch between them by setting the `authMethod` environment variable to `bearer` or `hmac`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Ruby API Dual-Authentication Handler",
+          "// Supports both Basic Bearer Token and Enterprise HMAC-SHA256 Request Signing",
+          "",
+          "function setHeader(name, value) {",
+          "    if (pm.request.headers.upsert) {",
+          "        pm.request.headers.upsert({ key: name, value: value });",
+          "    } else {",
+          "        pm.request.headers.remove(name);",
+          "        pm.request.headers.add({ key: name, value: value });",
+          "    }",
+          "}",
+          "",
+          "function removeHeader(name) {",
+          "    pm.request.headers.remove(name);",
+          "}",
+          "",
+          "const authMethod = (pm.environment.get(\"authMethod\") || \"bearer\").toLowerCase();",
+          "const keyId = pm.environment.get(\"apiKeyId\");",
+          "",
+          "if (authMethod === \"hmac\") {",
+          "    const hmacSecret = pm.environment.get(\"hmacSecret\");",
+          "    if (!keyId || !hmacSecret || keyId === \"YOUR_API_KEY_ID\" || hmacSecret === \"YOUR_HMAC_SECRET\") {",
+          "        console.warn(\"[Ruby Auth] 'hmac' mode requires 'apiKeyId' and 'hmacSecret' environment variables.\");",
+          "    }",
+          "",
+          "    const timestamp = Math.floor(Date.now() / 1000).toString();",
+          "    const method = pm.request.method.toUpperCase();",
+          "    ",
+          "    // Resolve full path (including /v1) after variable replacement",
+          "    let path = \"\";",
+          "    try {",
+          "        const resolvedUrl = pm.variables.replaceIn(pm.request.url.toString());",
+          "        const match = resolvedUrl.match(/^https?:\\/\\/[^\\/]+(\\/[^?#]*)/);",
+          "        if (match && match[1]) {",
+          "            path = match[1];",
+          "        } else {",
+          "            path = pm.request.url.getPath();",
+          "            if (typeof path === \"string\" && !path.startsWith(\"/\")) path = \"/\" + path;",
+          "        }",
+          "    } catch (e) {",
+          "        path = pm.request.url.getPath();",
+          "        if (typeof path === \"string\" && !path.startsWith(\"/\")) path = \"/\" + path;",
+          "    }",
+          "    ",
+          "    // Compute SHA256 hex digest of the raw request body with variables resolved",
+          "    const rawBody = pm.request.body && pm.request.body.raw ? pm.variables.replaceIn(pm.request.body.raw) : \"\";",
+          "    const cryptoLib = (typeof require === \"function\") ? (function() { try { return require(\"crypto-js\"); } catch(e) { return CryptoJS; } })() : CryptoJS;",
+          "    const bodyHash = cryptoLib.SHA256(rawBody).toString(cryptoLib.enc.Hex);",
+          "    ",
+          "    // Canonical string: \"{timestamp}\\n{METHOD}\\n{path}\\n{body_hash}\"",
+          "    const stringToSign = `${timestamp}\\n${method}\\n${path}\\n${bodyHash}`;",
+          "    const signature = cryptoLib.HmacSHA256(stringToSign, hmacSecret || \"\").toString(CryptoJS.enc.Hex);",
+          "    ",
+          "    // Set Ruby HMAC headers",
+          "    setHeader(\"X-Rby-Key-Id\", keyId || \"\");",
+          "    setHeader(\"X-Rby-Timestamp\", timestamp);",
+          "    setHeader(\"X-Rby-Signature\", signature);",
+          "    removeHeader(\"Authorization\");",
+          "",
+          "} else {",
+          "    // Basic Bearer Token mode: Authorization: Bearer <key_id>:<key_secret>",
+          "    const keySecret = pm.environment.get(\"apiKeySecret\");",
+          "    if (!keyId || !keySecret || keyId === \"YOUR_API_KEY_ID\" || keySecret === \"YOUR_API_KEY_SECRET\") {",
+          "        console.warn(\"[Ruby Auth] 'bearer' mode requires 'apiKeyId' and 'apiKeySecret' environment variables.\");",
+          "    }",
+          "",
+          "    setHeader(\"Authorization\", `Bearer ${keyId || \"\"}:${keySecret || \"\"}`);",
+          "    removeHeader(\"X-Rby-Key-Id\");",
+          "    removeHeader(\"X-Rby-Timestamp\");",
+          "    removeHeader(\"X-Rby-Signature\");",
+          "}"
+        ]
+      }
+    }
+  ],
+  "item": [
+    {
+      "name": "Links",
+      "description": "Create, list, inspect, update, delete, and analyze short links.",
+      "item": [
+        {
+          "name": "Create Short Link",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination_url\": \"https://example.com/summer-promotion\",\n  \"domain\": \"{{defaultDomain}}\",\n  \"title\": \"Summer Campaign Link\",\n  \"utm_source\": \"newsletter\",\n  \"utm_medium\": \"email\",\n  \"utm_campaign\": \"summer_sale\",\n  \"forward_parameters\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/links",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "links"
+              ]
+            },
+            "description": "Create a new short link on the default domain (rby.one) or a verified custom domain."
+          }
+        },
+        {
+          "name": "List Short Links",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/links?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "links"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Page size limit (1-100)"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "Cursor from previous page",
+                  "disabled": true
+                },
+                {
+                  "key": "domain",
+                  "value": "{{defaultDomain}}",
+                  "description": "Filter by domain",
+                  "disabled": true
+                },
+                {
+                  "key": "group_public_id",
+                  "value": "{{groupPublicId}}",
+                  "description": "Filter by group",
+                  "disabled": true
+                },
+                {
+                  "key": "is_active",
+                  "value": "true",
+                  "description": "Filter active/inactive",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search keyword",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List short links with cursor pagination and optional filters."
+          }
+        },
+        {
+          "name": "Lookup Short Link",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/links/lookup?domain={{defaultDomain}}&short_code={{shortCode}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "links",
+                "lookup"
+              ],
+              "query": [
+                {
+                  "key": "domain",
+                  "value": "{{defaultDomain}}",
+                  "description": "Domain name"
+                },
+                {
+                  "key": "short_code",
+                  "value": "{{shortCode}}",
+                  "description": "Short code or alias"
+                }
+              ]
+            },
+            "description": "Resolve short link details by domain and short code combination."
+          }
+        },
+        {
+          "name": "Get Short Link by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/links/{{linkPublicId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "links",
+                "{{linkPublicId}}"
+              ]
+            },
+            "description": "Get detailed metadata and routing rules for a single link by public ID."
+          }
+        },
+        {
+          "name": "Update Short Link",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"destination_url\": \"https://example.com/updated-summer-promotion\",\n  \"title\": \"Updated Summer Campaign Title\",\n  \"is_active\": true\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/links/{{linkPublicId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "links",
+                "{{linkPublicId}}"
+              ]
+            },
+            "description": "Update destination URL, title, targeting rules, password, or active status."
+          }
+        },
+        {
+          "name": "Delete Short Link",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/links/{{linkPublicId}}?hard=false",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "links",
+                "{{linkPublicId}}"
+              ],
+              "query": [
+                {
+                  "key": "hard",
+                  "value": "false",
+                  "description": "true for hard purge, false for soft deactivate"
+                }
+              ]
+            },
+            "description": "Deactivate (soft delete) or permanently purge (hard delete) a short link."
+          }
+        },
+        {
+          "name": "Get Short Link Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/links/{{linkPublicId}}/stats?period=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "links",
+                "{{linkPublicId}}",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "30",
+                  "description": "Timeframe in days (7, 30, 60, 90, 180, 365, 730, 1825)"
+                }
+              ]
+            },
+            "description": "Retrieve aggregated clickstream analytics, time series, and categorical breakdowns."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Link Groups",
+      "description": "Organize links into collections, batch create links, export, and review aggregated metrics.",
+      "item": [
+        {
+          "name": "Create Link Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Summer Campaign 2026\",\n  \"description\": \"Collection of promotional links for summer sales\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups"
+              ]
+            },
+            "description": "Create a new campaign link group."
+          }
+        },
+        {
+          "name": "List Link Groups",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Page size limit"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "description": "Pagination cursor",
+                  "disabled": true
+                },
+                {
+                  "key": "include_inactive",
+                  "value": "false",
+                  "description": "Include soft-deleted groups",
+                  "disabled": true
+                },
+                {
+                  "key": "search",
+                  "value": "",
+                  "description": "Search keyword",
+                  "disabled": true
+                }
+              ]
+            },
+            "description": "List link groups with pagination and optional search filter."
+          }
+        },
+        {
+          "name": "Get Link Group by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups/{{groupPublicId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups",
+                "{{groupPublicId}}"
+              ]
+            },
+            "description": "Retrieve link group metadata and live link counter."
+          }
+        },
+        {
+          "name": "List Group Links",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups/{{groupPublicId}}/links?limit=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups",
+                "{{groupPublicId}}",
+                "links"
+              ],
+              "query": [
+                {
+                  "key": "limit",
+                  "value": "50",
+                  "description": "Number of links to return (max 100)"
+                },
+                {
+                  "key": "cursor",
+                  "value": "",
+                  "disabled": true,
+                  "description": "Pagination cursor for the next page of links"
+                }
+              ]
+            },
+            "description": "Retrieve a paginated list of short links belonging to a specific link group."
+          },
+          "response": []
+        },
+        {
+          "name": "Update Link Group",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Updated Summer Campaign 2026\",\n  \"description\": \"Updated group description\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups/{{groupPublicId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups",
+                "{{groupPublicId}}"
+              ]
+            },
+            "description": "Update link group title or description."
+          }
+        },
+        {
+          "name": "Delete Link Group",
+          "request": {
+            "method": "DELETE",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups/{{groupPublicId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups",
+                "{{groupPublicId}}"
+              ],
+              "query": [
+                {
+                  "key": "hard",
+                  "value": "false",
+                  "disabled": true,
+                  "description": "Permanently delete group and all associated links (hard delete)"
+                }
+              ]
+            },
+            "description": "Soft delete or remove a link group."
+          }
+        },
+        {
+          "name": "Batch Create Links in Group",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"domain\": \"{{defaultDomain}}\",\n  \"links\": [\n    {\n      \"destination_url\": \"https://example.com/shoes\",\n      \"title\": \"Summer Shoes Promo\",\n      \"utm_source\": \"batch\",\n      \"utm_medium\": \"social\",\n      \"utm_campaign\": \"summer_sale\"\n    },\n    {\n      \"destination_url\": \"https://example.com/bags\",\n      \"title\": \"Summer Bags Promo\",\n      \"utm_source\": \"batch\",\n      \"utm_medium\": \"social\",\n      \"utm_campaign\": \"summer_sale\"\n    }\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups/{{groupPublicId}}/links/batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups",
+                "{{groupPublicId}}",
+                "links",
+                "batch"
+              ]
+            },
+            "description": "Programmatically batch-create links directly under an active link group."
+          }
+        },
+        {
+          "name": "Export Link Group",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups/{{groupPublicId}}/export",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups",
+                "{{groupPublicId}}",
+                "export"
+              ],
+              "query": [
+                {
+                  "key": "refresh",
+                  "value": "false",
+                  "disabled": true,
+                  "description": "Force re-generation of export for dynamic groups"
+                }
+              ]
+            },
+            "description": "Generate a downloadable CSV export containing all member links."
+          }
+        },
+        {
+          "name": "Get Link Group Analytics",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/groups/{{groupPublicId}}/stats?period=30",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "groups",
+                "{{groupPublicId}}",
+                "stats"
+              ],
+              "query": [
+                {
+                  "key": "period",
+                  "value": "30",
+                  "description": "Timeframe in days"
+                }
+              ]
+            },
+            "description": "Retrieve aggregated clickstream analytics consolidated across all links in the group."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Domains",
+      "description": "List platform default and verified branded custom domains.",
+      "item": [
+        {
+          "name": "List Available Domains",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/domains",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "domains"
+              ]
+            },
+            "description": "List all default platform domains and verified custom domains authorized for short links."
+          }
+        }
+      ]
+    },
+    {
+      "name": "System",
+      "description": "System health and operational status endpoints.",
+      "item": [
+        {
+          "name": "Health Check",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/v1/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "v1",
+                "health"
+              ]
+            },
+            "description": "Check the operational status of the Ruby Developer REST API."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
